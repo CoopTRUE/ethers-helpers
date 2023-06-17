@@ -1,5 +1,10 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "$lib/*": ["src/lib/*"]
+    },
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ESNext",
