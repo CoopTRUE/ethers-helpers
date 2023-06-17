@@ -15,10 +15,14 @@ class ClientTokenFactory {
   ): Promise<ClientToken<T>> {
     // @ts-expect-error Type inference gets weird
     const clientToken = new ClientToken<T>(...args)
-    await clientToken.init()
+    await clientToken.initialize()
     return clientToken
   }
 }
+
+/**
+ * Please use getClientTokens instead of this class. This class is used internally by getClientTokens.
+ */
 class ClientToken<const T extends Token> {
   private readonly contract: ethers.Contract
   private readonly oracleContract?: ethers.Contract
@@ -74,8 +78,11 @@ class ClientToken<const T extends Token> {
     ])
     console.log(this.getBalance(), this.getPrice())
   }
-  async init(): Promise<void> {
-    this.decimals = await this.contract.decimals().then(Number)
+  /**
+   * This method is called automatically when the ClientToken is created. It should not be called manually.
+   */
+  async initialize(): Promise<void> {
+    this.decimals = Number(await this.contract.decimals())
     await this.update()
   }
 }
@@ -202,7 +209,7 @@ getClientTokens(wallet, NETWORKS, ({ chainId, token }) => {
   return void console.log(token) || 100
 })
   .then((tokens) => {
-    for (const { init, balance, price } of tokens) {
+    for (const { balance, price } of tokens) {
       console.log(price)
     }
     // a.
