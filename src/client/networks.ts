@@ -1,6 +1,7 @@
 import type Network from '$lib/network'
-import { ethers } from 'ethers'
 import { type ClientActivatedToken, getActivatedClientTokens } from './tokens'
+import { ethers } from 'ethers'
+
 type ClientActivatedNetwork<N extends Network> = Omit<N, 'tokens'> & {
   tokens: readonly ClientActivatedToken[]
 }

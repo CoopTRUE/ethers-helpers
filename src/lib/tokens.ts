@@ -4,7 +4,7 @@ export interface Token {
   readonly name: string
   readonly symbol: string
   readonly address: string
-  readonly OracleAddress?: string
+  readonly oracleAddress?: string
   readonly image: string
 }
 

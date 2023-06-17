@@ -1,5 +1,6 @@
 {
   "endOfLine": "lf",
   "semi": false,
-  "singleQuote": true
+  "singleQuote": true,
+  "plugins": ["@trivago/prettier-plugin-sort-imports"]
 }
