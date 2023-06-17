@@ -1,5 +1,5 @@
-import { ethers } from 'ethers'
 import { Token } from './tokens'
+import { ethers } from 'ethers'
 
 export interface Network {
   readonly name: string

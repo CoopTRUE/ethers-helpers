@@ -1,16 +1,22 @@
 import ABI from '$lib/ABI'
 import { Network, Networks } from '$lib/network'
-import { Token } from '$lib/tokens'
+import {
+  Token,
+  getBalance as _getBalance,
+  transfer as _transfer,
+  type Address,
+} from '$lib/tokens'
 import { ethers } from 'ethers'
 
 class ClientToken<const IBaseTokenArgs extends Token> {
   private readonly contract: ethers.Contract
   private readonly oracleContract?: ethers.Contract
   private decimals: number
+  private balance: number
   constructor(
     readonly token: IBaseTokenArgs,
     private readonly signer: ethers.Signer,
-    private readonly signerAddress: string,
+    private readonly signerAddress: Address,
     private readonly customPriceCalculation?: (args: {
       chainId: number
       token: IBaseTokenArgs
@@ -26,14 +32,36 @@ class ClientToken<const IBaseTokenArgs extends Token> {
     }
   }
   async init(): Promise<void> {
-    await this.contract
-      .decimals()
-      .then((decimals) => (this.decimals = Number(decimals)))
+    this.decimals = await this.contract.decimals().then(Number)
+  }
+  async getBalance(): Promise<number> {
+    return await _getBalance(this.contract, this.signerAddress, this.decimals)
+  }
+  async getPrice(): Promise<number> {
+    const {oracleContract} = this
+    if (oracleContract) {
+      const price = oracleContract.
+    }
+  }
+  // transfer
+  async transfer(
+    to: Address,
+    amount: number
+  ): Promise<ethers.ContractTransactionResponse> {
+    return await _transfer(this.contract, this.decimals, to, amount)
+  }
+  async update(): Promise<void> {
+    const newBalance = this.getBalance()
+    const newPrice = this.getPrice()
+    await Promise.all([
+      newBalance.then((balance) => (this.balance = balance)),
+      newPrice.then((price) => (this.token.price = price)),
+    ])
   }
 }
 
 type TokenWithoutOracleAddress<T extends readonly Token[]> = {
-  [K in keyof T]: T[K] extends { oracleAddress: string } ? never : T[K]
+  [K in keyof T]: T[K] extends { oracleAddress: Address } ? never : T[K]
 }[number]
 
 /**
@@ -90,18 +118,16 @@ const NETWORKS = {
         name: 'Binance-Peg BUSD Token',
         symbol: 'BUSD',
         address: '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56',
-        // oracleAddress: '0xcBb98864Ef56E9042e7d2efef76141f15731B82f',
+        oracleAddress: '0xcBb98864Ef56E9042e7d2efef76141f15731B82f',
         image: 'https://cryptologos.cc/logos/binance-usd-busd-logo.svg',
       },
-      // {
-      //   name: 'Wrapped BNB',
-      //   symbol: 'WBNB',
-      //   decimals: 18,
-      //   roundPrecision: 5,
-      //   address: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
-      //   oracleAddress: '0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE',
-      //   image: 'https://cryptologos.cc/logos/binance-coin-bnb-logo.svg'
-      // },
+      {
+        name: 'Wrapped BNB',
+        symbol: 'WBNB',
+        address: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+        oracleAddress: '0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE',
+        image: 'https://cryptologos.cc/logos/binance-coin-bnb-logo.svg',
+      },
       {
         name: 'Binance-Peg Ethereum Token',
         symbol: 'ETH',
@@ -131,15 +157,13 @@ const NETWORKS = {
         oracleAddress: '0xF096872672F44d6EBA71458D74fe67F9a77a23B9',
         image: 'https://cryptologos.cc/logos/usd-coin-usdc-logo.svg',
       },
-      // {
-      //   name: 'Wrapped AVAX',
-      //   symbol: 'WAVAX',
-      //   decimals: 18,
-      //   roundPrecision: 5,
-      //   address: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
-      //   oracleAddress: '0x0A77230d17318075983913bC2145DB16C7366156',
-      //   image: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg'
-      // },
+      {
+        name: 'Wrapped AVAX',
+        symbol: 'WAVAX',
+        address: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+        oracleAddress: '0x0A77230d17318075983913bC2145DB16C7366156',
+        image: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg',
+      },
       {
         name: 'Magic Internet Money',
         symbol: 'MIM',
@@ -150,9 +174,13 @@ const NETWORKS = {
   },
 } as const satisfies Networks
 
-getClientTokens(ethers.Wallet.createRandom(), NETWORKS, (a) => {
-  return void console.log(a) || 100
-})
+getClientTokens(
+  ethers.Wallet.createRandom(),
+  NETWORKS,
+  ({ chainId, token }) => {
+    return void console.log(token) || 100
+  }
+)
   .then((tokens) => {
     const a = tokens[56]
     a.token.name
