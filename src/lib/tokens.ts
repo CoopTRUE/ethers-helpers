@@ -7,10 +7,3 @@ export interface Token {
   readonly oracleAddress?: string
   readonly image: string
 }
-
-export interface BasicActivatedToken extends Token {
-  readonly transfer: (
-    to: string,
-    amount: number
-  ) => Promise<ethers.ContractTransactionReceipt>
-}

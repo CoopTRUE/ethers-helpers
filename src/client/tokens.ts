@@ -1,64 +1,82 @@
 import ABI from '$lib/ABI'
 import { Network, Networks } from '$lib/network'
-import { Token, BasicActivatedToken } from '$lib/tokens'
+import { Token } from '$lib/tokens'
 import { ethers } from 'ethers'
 
-class ClientToken implements BasicActivatedToken {
+class ClientToken<const IBaseTokenArgs extends Token> {
   private readonly contract: ethers.Contract
+  private readonly oracleContract?: ethers.Contract
+  private decimals: number
   constructor(
+    readonly token: IBaseTokenArgs,
     private readonly signer: ethers.Signer,
     private readonly signerAddress: string,
-    private readonly token: Token,
-    public balance: number,
-    public serverBalance: number,
-    public price: number
+    private readonly customPriceCalculation?: (args: {
+      chainId: number
+      token: IBaseTokenArgs
+    }) => Promise<number> | number
   ) {
     this.contract = new ethers.Contract(token.address, ABI, signer)
-  }
-  async transfer(to: string, amount: number) {
-    return (await this.contract.transfer(
-      to,
-      amount
-    )) as ethers.ContractTransactionReceipt
-  }
-  async update(): Promise<void> {
-    const getBalance = async (address: string, decimals: number) => {
-      const balance = await this.contract
-        .balanceOf(address)
-        .then((balance) => Number(balance))
-      return Number(balance) / 10 ** decimals
+    if (token.oracleAddress) {
+      this.oracleContract = new ethers.Contract(
+        token.oracleAddress,
+        ABI,
+        signer
+      )
     }
-    await Promise.all([
-      getBalance(this.signerAddress, this.token.decimals).then(
-        (balance) => (this.balance = balance)
-      ),
-    ])
+  }
+  async init(): Promise<void> {
+    await this.contract
+      .decimals()
+      .then((decimals) => (this.decimals = Number(decimals)))
   }
 }
 
+type TokenWithoutOracleAddress<T extends readonly Token[]> = {
+  [K in keyof T]: T[K] extends { oracleAddress: string } ? never : T[K]
+}[number]
+
 /**
- * customPriceCalculation gets invoked if a token doesn't have an oracleAddress. It is passed the chainId and the token and should return the price of the token.
+ * customPriceCalculation: is a function that gets called for each token when calculating if the token doesn't have an oracleAddress. It should return the price of the token in USD. The arguments are in the form of { chainId: number, token: Token }
  */
 export async function getClientTokens<const Ns extends Networks>(
   signer: ethers.Signer,
   networks: Ns,
   customPriceCalculation: (
-    chainId: keyof Ns,
-    token: Token
+    args: {
+      [ChainId in keyof Ns]: {
+        chainId: ChainId
+        token: TokenWithoutOracleAddress<Ns[ChainId & number]['tokens']>
+      }
+    }[keyof Ns]
   ) => Promise<number> | number
-): Promise<ClientToken[]> {
+): Promise<
+  {
+    [ChainId in keyof Ns]: ClientToken<Ns[ChainId & number]['tokens'][number]>[]
+  }[keyof Ns]
+> {
+  //Promise<ClientToken<Ns[keyof Ns & number]['tokens'][number]>> {
   const { provider } = signer
   if (!provider) throw new Error('Signer must have a provider')
   const chainId = await provider
     .getNetwork()
-    .then(({ chainId }) => Number(chainId) as keyof Ns)
-  const currentNetwork = networks[chainId] as Network
+    .then(({ chainId }) => Number(chainId))
+  const currentNetwork = networks[chainId]
   if (!currentNetwork) throw new Error('Network not supported')
+  const address = await signer.getAddress()
   const { tokens } = currentNetwork
-  const activatedTokens = tokens.map((token) =>
-    buildClientTokens(signer, token)
+  const clientTokens = tokens.map(
+    (token) =>
+      new ClientToken(
+        // @ts-expect-error Token is automatically assumed to be a Token without an oracleAddress
+        token,
+        signer,
+        address,
+        customPriceCalculation
+      )
   )
-  return await Promise.all(activatedTokens)
+  // @ts-expect-error Token is automatically assumed to be a Token without an oracleAddress
+  return clientTokens
 }
 
 const NETWORKS = {
@@ -72,7 +90,7 @@ const NETWORKS = {
         name: 'Binance-Peg BUSD Token',
         symbol: 'BUSD',
         address: '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56',
-        oracleAddress: '0xcBb98864Ef56E9042e7d2efef76141f15731B82f',
+        // oracleAddress: '0xcBb98864Ef56E9042e7d2efef76141f15731B82f',
         image: 'https://cryptologos.cc/logos/binance-usd-busd-logo.svg',
       },
       // {
@@ -131,3 +149,14 @@ const NETWORKS = {
     ],
   },
 } as const satisfies Networks
+
+getClientTokens(ethers.Wallet.createRandom(), NETWORKS, (a) => {
+  return void console.log(a) || 100
+})
+  .then((tokens) => {
+    const a = tokens[56]
+    a.token.name
+    // a.
+    //    ^?
+  })
+  .catch(console.error)
