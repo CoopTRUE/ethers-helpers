@@ -30,3 +30,12 @@ export async function transfer(
     formattedAmount
   )) as ethers.ContractTransactionResponse
 }
+
+export async function getPriceViaOracle(
+  oracleContract: ethers.Contract
+): Promise<number> {
+  const latestRound = (await oracleContract.latestRoundData()) as {
+    answer: bigint
+  }
+  return Number(latestRound.answer) / 10 ** 8
+}

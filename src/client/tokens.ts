@@ -5,21 +5,34 @@ import {
   getBalance as _getBalance,
   transfer as _transfer,
   type Address,
+  getPriceViaOracle,
 } from '$lib/tokens'
 import { ethers } from 'ethers'
 
-class ClientToken<const IBaseTokenArgs extends Token> {
+class ClientTokenFactory {
+  static async create<T extends Token>(
+    ...args: ConstructorParameters<typeof ClientToken>
+  ): Promise<ClientToken<T>> {
+    // @ts-expect-error Type inference gets weird
+    const clientToken = new ClientToken<T>(...args)
+    await clientToken.init()
+    return clientToken
+  }
+}
+class ClientToken<const T extends Token> {
   private readonly contract: ethers.Contract
   private readonly oracleContract?: ethers.Contract
   private decimals: number
-  private balance: number
+  balance: number
+  price: number
   constructor(
-    readonly token: IBaseTokenArgs,
+    readonly token: T,
     private readonly signer: ethers.Signer,
+    private readonly chainId: number,
     private readonly signerAddress: Address,
     private readonly customPriceCalculation?: (args: {
       chainId: number
-      token: IBaseTokenArgs
+      token: T
     }) => Promise<number> | number
   ) {
     this.contract = new ethers.Contract(token.address, ABI, signer)
@@ -31,19 +44,21 @@ class ClientToken<const IBaseTokenArgs extends Token> {
       )
     }
   }
-  async init(): Promise<void> {
-    this.decimals = await this.contract.decimals().then(Number)
-  }
   async getBalance(): Promise<number> {
     return await _getBalance(this.contract, this.signerAddress, this.decimals)
   }
   async getPrice(): Promise<number> {
-    const {oracleContract} = this
+    const { oracleContract } = this
     if (oracleContract) {
-      const price = oracleContract.
+      return await getPriceViaOracle(oracleContract)
+    } else {
+      // @ts-expect-error customPriceCalculation is defined when oracleContract is undefined
+      return await this.customPriceCalculation({
+        chainId: this.chainId,
+        token: this.token,
+      })
     }
   }
-  // transfer
   async transfer(
     to: Address,
     amount: number
@@ -55,8 +70,13 @@ class ClientToken<const IBaseTokenArgs extends Token> {
     const newPrice = this.getPrice()
     await Promise.all([
       newBalance.then((balance) => (this.balance = balance)),
-      newPrice.then((price) => (this.token.price = price)),
+      newPrice.then((price) => (this.price = price)),
     ])
+    console.log(this.getBalance(), this.getPrice())
+  }
+  async init(): Promise<void> {
+    this.decimals = await this.contract.decimals().then(Number)
+    await this.update()
   }
 }
 
@@ -91,20 +111,20 @@ export async function getClientTokens<const Ns extends Networks>(
     .then(({ chainId }) => Number(chainId))
   const currentNetwork = networks[chainId]
   if (!currentNetwork) throw new Error('Network not supported')
-  const address = await signer.getAddress()
+  const address = (await signer.getAddress()) as Address
   const { tokens } = currentNetwork
-  const clientTokens = tokens.map(
-    (token) =>
-      new ClientToken(
-        // @ts-expect-error Token is automatically assumed to be a Token without an oracleAddress
-        token,
-        signer,
-        address,
-        customPriceCalculation
-      )
+  const clientTokens = tokens.map((token) =>
+    ClientTokenFactory.create(
+      token,
+      signer,
+      chainId,
+      address,
+      // @ts-expect-error Token is automatically assumed to be a Token without an oracleAddress
+      customPriceCalculation
+    )
   )
-  // @ts-expect-error Token is automatically assumed to be a Token without an oracleAddress
-  return clientTokens
+  // console.log(clientTokens[0])
+  return await Promise.all(clientTokens)
 }
 
 const NETWORKS = {
@@ -174,16 +194,17 @@ const NETWORKS = {
   },
 } as const satisfies Networks
 
-getClientTokens(
-  ethers.Wallet.createRandom(),
-  NETWORKS,
-  ({ chainId, token }) => {
-    return void console.log(token) || 100
-  }
+const wallet = ethers.Wallet.createRandom(
+  new ethers.JsonRpcProvider('https://bsc.blockpi.network/v1/rpc/public')
 )
+
+getClientTokens(wallet, NETWORKS, ({ chainId, token }) => {
+  return void console.log(token) || 100
+})
   .then((tokens) => {
-    const a = tokens[56]
-    a.token.name
+    for (const { init, balance, price } of tokens) {
+      console.log(price)
+    }
     // a.
     //    ^?
   })

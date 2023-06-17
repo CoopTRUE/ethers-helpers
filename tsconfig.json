@@ -13,5 +13,8 @@
     "strictPropertyInitialization": false,
     "strict": true
   },
-  "include": [".eslintrc.cjs", "src/**/*"]
+  "include": [".eslintrc.cjs", "src/**/*"],
+  "ts-node": {
+    "require": ["tsconfig-paths/register"]
+  }
 }
