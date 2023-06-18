@@ -9,19 +9,50 @@ import {
 } from '$lib/tokens'
 import { ethers } from 'ethers'
 
+/**
+ * Used to create a `ClientToken`. However, it is recommended to use `getClientTokens` instead.
+ *
+ * @example
+ * ```ts
+ * // Recommended way to create a ClientToken
+ * const clientTokens = await getClientTokens(
+ *  signer,
+ *  networks,
+ *  async ({ chainId, token }) => {
+ *   const price = customPriceCalculation({ chainId, token })
+ *   return price
+ *  }
+ * )
+ * // In the case you want to create a ClientToken manually
+ * const clientToken = await ClientTokenFactory.create(
+ *  token,
+ *  signer,
+ *  chainId,
+ *  address,
+ *  async ({ chainId, token }) => {
+ *   const price = customPriceCalculation({ chainId, token })
+ *   return price
+ *  }
+ * )
+ * ```
+ * @throws Error if `customPriceCalculation` is not defined when `oracleAddress` is undefined
+ * @see getClientTokens
+ */
 class ClientTokenFactory {
-  static async create<T extends Token>(
+  static async create<const T extends Token>(
     ...args: ConstructorParameters<typeof ClientToken>
   ): Promise<ClientToken<T>> {
-    // @ts-expect-error Type inference gets weird
-    const clientToken = new ClientToken<T>(...args)
+    const clientToken = new ClientToken(...args)
     await clientToken.initialize()
+    // @ts-expect-error clientToken is of type ClientToken<T>
     return clientToken
   }
 }
 
 /**
- * Please use getClientTokens instead of this class. This class is used internally by getClientTokens.
+ * ClientToken is a class that is used to interact with a token.
+ * Do not create this class manually, instead use `getClientTokens` or `ClientTokenFactory.create`.
+ * @internal
  */
 class ClientToken<const T extends Token> {
   private readonly contract: ethers.Contract
@@ -39,18 +70,25 @@ class ClientToken<const T extends Token> {
       token: T
     }) => Promise<number> | number
   ) {
-    this.contract = new ethers.Contract(token.address, ABI, signer)
-    if (token.oracleAddress) {
-      this.oracleContract = new ethers.Contract(
-        token.oracleAddress,
-        ABI,
-        signer
+    const { address, oracleAddress } = token
+    this.contract = new ethers.Contract(address, ABI, signer)
+    if (oracleAddress) {
+      this.oracleContract = new ethers.Contract(oracleAddress, ABI, signer)
+    } else if (!customPriceCalculation) {
+      throw new Error(
+        'customPriceCalculation must be defined when oracleAddress is undefined'
       )
     }
   }
+  /**
+   * Returns the balance of the token in the wallet of the signer.
+   */
   async getBalance(): Promise<number> {
     return await _getBalance(this.contract, this.signerAddress, this.decimals)
   }
+  /**
+   * Returns the price of the token in USD.
+   */
   async getPrice(): Promise<number> {
     const { oracleContract } = this
     if (oracleContract) {
@@ -63,12 +101,26 @@ class ClientToken<const T extends Token> {
       })
     }
   }
+  /**
+   * Transfers the token to the specified address.
+   */
   async transfer(
     to: Address,
     amount: number
   ): Promise<ethers.ContractTransactionResponse> {
     return await _transfer(this.contract, this.decimals, to, amount)
   }
+  /**
+   * Updates the balance and price of the token.
+   * @example
+   * ```ts
+   * const const clientTokens = await getClientTokens(...)
+   * async function updateTokens() {
+   *  await Promise.all(clientTokens.map((clientToken) => clientToken.update()))
+   * }
+   * setInterval(updateTokens, 1000 * 60 * 5) // Update every 5 minutes
+   * ```
+   */
   async update(): Promise<void> {
     const newBalance = this.getBalance()
     const newPrice = this.getPrice()
@@ -76,10 +128,10 @@ class ClientToken<const T extends Token> {
       newBalance.then((balance) => (this.balance = balance)),
       newPrice.then((price) => (this.price = price)),
     ])
-    console.log(this.getBalance(), this.getPrice())
   }
   /**
    * This method is called automatically when the ClientToken is created. It should not be called manually.
+   * @internal
    */
   async initialize(): Promise<void> {
     this.decimals = Number(await this.contract.decimals())
@@ -92,22 +144,34 @@ type TokenWithoutOracleAddress<T extends readonly Token[]> = {
 }[number]
 
 /**
- * customPriceCalculation: is a function that gets called for each token when calculating if the token doesn't have an oracleAddress. It should return the price of the token in USD. The arguments are in the form of { chainId: number, token: Token }
+ * Returns an array of ClientTokens for the specified signer.
+ * @example
+ * ```ts
+ * const clientTokens = await getClientTokens(
+ *  signer,
+ *  networks,
+ *  async ({ chainId, token }) => {
+ *   const price = customPriceCalculation({ chainId, token })
+ *   return price
+ *  }
+ * )
+ * ```
+ * @throws Error if `customPriceCalculation` is not defined when `oracleAddress` is undefined for a token
  */
 export async function getClientTokens<const Ns extends Networks>(
   signer: ethers.Signer,
   networks: Ns,
   customPriceCalculation: (
     args: {
-      [ChainId in keyof Ns]: {
-        chainId: ChainId
-        token: TokenWithoutOracleAddress<Ns[ChainId & number]['tokens']>
+      [C in keyof Ns]: {
+        chainId: C
+        token: TokenWithoutOracleAddress<Ns[C & number]['tokens']>
       }
     }[keyof Ns]
   ) => Promise<number> | number
 ): Promise<
   {
-    [ChainId in keyof Ns]: ClientToken<Ns[ChainId & number]['tokens'][number]>[]
+    [C in keyof Ns]: ClientToken<Ns[C & number]['tokens'][number]>[]
   }[keyof Ns]
 > {
   //Promise<ClientToken<Ns[keyof Ns & number]['tokens'][number]>> {
